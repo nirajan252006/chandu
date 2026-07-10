@@ -43,32 +43,49 @@ class BrowserManager {
     logger.info(`Chrome profile: ${config.userDataDir} (profile: ${config.profile})`);
 
     try {
-      // Launch with persistent context using user's Chrome data
-      this.context = await chromium.launchPersistentContext(playwrightDataDir, {
-        headless: config.headless,
+      const isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
+      const headlessMode = isRender ? true : config.headless;
+
+      const launchArgs = [
+        `--profile-directory=${config.profile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--start-maximized',
+        '--enable-gpu-rasterization',
+        '--enable-zero-copy',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-ipc-flooding-protection',
+        '--disable-dev-shm-usage',
+        '--disable-hang-monitor',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+      ];
+
+      const launchOptions: any = {
+        headless: headlessMode,
         slowMo: config.slowMo,
-        channel: 'chrome',
-        args: [
-          `--profile-directory=${config.profile}`,
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-blink-features=AutomationControlled',
-          '--disable-infobars',
-          '--start-maximized',
-          '--enable-gpu-rasterization',
-          '--enable-zero-copy',
-          '--disable-extensions',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-ipc-flooding-protection',
-          '--disable-dev-shm-usage',
-          '--disable-hang-monitor',
-        ],
+        args: launchArgs,
         viewport: { width: 1920, height: 1080 },
         ignoreHTTPSErrors: true,
         bypassCSP: true,
-      });
+      };
+
+      // Only request Google Chrome channel in local dev environment
+      if (!isRender) {
+        launchOptions.channel = 'chrome';
+      }
+
+      logger.info(`Launching browser with headless=${headlessMode}, channel=${launchOptions.channel || 'default-chromium'}`);
+
+      // Launch with persistent context
+      this.context = await chromium.launchPersistentContext(playwrightDataDir, launchOptions);
 
       logger.info('Browser context created successfully');
 

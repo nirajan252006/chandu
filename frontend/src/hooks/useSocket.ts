@@ -7,7 +7,7 @@ import { io, Socket } from 'socket.io-client';
 import { useAppStore } from '../stores/useAppStore';
 import type { SearchResult, LogEntry } from '../types';
 
-const SOCKET_URL = 'http://localhost:3001';
+const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const BATCH_INTERVAL_MS = 200; // flush UI updates every 200ms
 
 export function useSocket() {

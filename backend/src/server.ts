@@ -25,9 +25,18 @@ const app = express();
 const httpServer = createServer(app);
 
 // Middleware
+const allowedOrigins = [config.frontendUrl, 'http://localhost:5173', 'http://localhost:3000'].filter(Boolean);
 app.use(cors({
-  origin: config.frontendUrl,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));
@@ -50,14 +59,16 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/export', exportRoutes);
 
 // Health check
-app.get('/api/health', (_req, res) => {
+const healthCheckHandler = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     browser: browserManager.getStatus(),
     uptime: process.uptime(),
   });
-});
+};
+app.get('/health', healthCheckHandler);
+app.get('/api/health', healthCheckHandler);
 
 // Config endpoint
 app.get('/api/config', (_req, res) => {
