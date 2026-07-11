@@ -11,9 +11,9 @@ const LS_KEY = 'vdrpro:session';
 
 // Defaults: enforced frontend-only gating/timers.
 // Values can be tuned without touching backend/business logic.
-export const SESSION_IDLE_TIMEOUT_MS = 1000 * 60 * 10; // 10 minutes inactivity
-export const SESSION_ABSOLUTE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
-export const SESSION_WARNING_BEFORE_MS = 1000 * 60; // 1 minute warning
+export const SESSION_IDLE_TIMEOUT_MS = 1000 * 60 * 60 * 24 * 365 * 100; // 100 years inactivity
+export const SESSION_ABSOLUTE_TTL_MS = 1000 * 60 * 60 * 24 * 365 * 100; // 100 years
+export const SESSION_WARNING_BEFORE_MS = 0; // No warning threshold
 
 function isBrowser() {
   return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
@@ -25,8 +25,8 @@ export function loadSession(): AuthSession | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed?.token || !parsed?.expiresAt) return null;
-    if (Date.now() >= parsed.expiresAt) return null;
+    if (!parsed?.token) return null;
+    // Bypassed/disabled expiration check so the session is loadable indefinitely
     return parsed;
   } catch {
     return null;
@@ -63,16 +63,14 @@ export function clearSession() {
 }
 
 export function getIdleRemainingMs(session: AuthSession) {
-  const idleElapsed = Date.now() - session.lastActivityAt;
-  return SESSION_IDLE_TIMEOUT_MS - idleElapsed;
+  return SESSION_IDLE_TIMEOUT_MS;
 }
 
 export function getExpirationRemainingMs(session: AuthSession) {
-  return session.expiresAt - Date.now();
+  return SESSION_ABSOLUTE_TTL_MS;
 }
 
 export function shouldWarn(session: AuthSession) {
-  const remaining = Math.min(getIdleRemainingMs(session), getExpirationRemainingMs(session));
-  return remaining <= SESSION_WARNING_BEFORE_MS && remaining > 0;
+  return false;
 }
 

@@ -55,110 +55,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  const [sessionWarning, setSessionWarning] = useState(false);
-  const [sessionIdleRemainingMs, setSessionIdleRemainingMs] = useState<number | null>(null);
-  const [sessionExpirationRemainingMs, setSessionExpirationRemainingMs] = useState<number | null>(null);
+  const [sessionWarning] = useState(false);
+  const [sessionIdleRemainingMs] = useState<number | null>(null);
+  const [sessionExpirationRemainingMs] = useState<number | null>(null);
 
   const isAuthenticated = !!session && !!user;
 
-  const recomputeTimers = useCallback((s: AuthSession | null) => {
-    if (!s) {
-      setSessionWarning(false);
-      setSessionIdleRemainingMs(null);
-      setSessionExpirationRemainingMs(null);
-      return;
-    }
-    const idle = getIdleRemainingMs(s);
-    const exp = getExpirationRemainingMs(s);
-    setSessionIdleRemainingMs(idle);
-    setSessionExpirationRemainingMs(exp);
-    setSessionWarning(shouldWarn(s));
-  }, []);
+  const touch = useCallback(() => {}, []);
 
-  useEffect(() => {
-    recomputeTimers(session);
-  }, [session, recomputeTimers]);
-
-  // Periodic warning/expiry checks while authenticated
-  useEffect(() => {
-    if (!session) return;
-
-    const interval = window.setInterval(() => {
-      setSession((prev) => {
-        if (!prev) return prev;
-        // If either timeout or absolute TTL elapsed -> logout
-        const idleRemaining = getIdleRemainingMs(prev);
-        const expRemaining = getExpirationRemainingMs(prev);
-        if (idleRemaining <= 0 || expRemaining <= 0) {
-          clearSession();
-          setUser(null);
-          setSessionWarning(false);
-          return null;
-        }
-        // Warn update
-        const warn = shouldWarn(prev);
-        setSessionWarning(warn);
-        setSessionIdleRemainingMs(idleRemaining);
-        setSessionExpirationRemainingMs(expRemaining);
-        return prev;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [session]);
-
-  const touch = useCallback(() => {
-    setSession((prev) => {
-      if (!prev) return prev;
-      const next = touchSessionActivity(prev);
-      persistSession(next);
-      return next;
-    });
-    // also mark activity for cross-tab (optional)
-    try {
-      window.localStorage.setItem(LS_KEY_AUTHPING, String(Date.now()));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Cross-tab activity sync (best-effort)
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (!e.key) return;
-      if (e.key !== LS_KEY_AUTHPING) return;
-      touch();
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [touch]);
-
-  // Inactivity listeners
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const handler = () => touch();
-    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-    events.forEach((ev) => window.addEventListener(ev, handler, { passive: true } as any));
-
-    return () => {
-      events.forEach((ev) => window.removeEventListener(ev, handler as any));
-    };
-  }, [isAuthenticated, touch]);
-
-  const resetSessionTimers = useCallback(() => {
-    setSession((prev) => {
-      if (!prev) return prev;
-      const now = Date.now();
-      const next: AuthSession = {
-        ...prev,
-        lastActivityAt: now,
-        expiresAt: prev.expiresAt,
-      };
-      persistSession(next);
-      return next;
-    });
-  }, []);
+  const resetSessionTimers = useCallback(() => {}, []);
 
   const login = useCallback(
     async (username: string, password: string, remember: boolean) => {
@@ -167,9 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!ok) return { ok: false, error: 'Invalid username or password.' };
 
         const now = Date.now();
-        // remembered sessions can be longer; enforce via remember flag only for UX.
-        const idleTimeout = remember ? SESSION_IDLE_TIMEOUT_MS : 1000 * 60 * 7;
-        const absoluteTtl = remember ? SESSION_ABSOLUTE_TTL_MS : 1000 * 60 * 60 * 2;
+        const infiniteTtl = 1000 * 60 * 60 * 24 * 365 * 100; // 100 years
 
         const s: AuthSession = {
           token: buildToken(),
@@ -177,13 +80,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           remembered: remember,
           createdAt: now,
           lastActivityAt: now,
-          expiresAt: now + Math.min(idleTimeout, absoluteTtl),
+          expiresAt: now + infiniteTtl,
         };
 
         saveSessionInternal(s, remember);
         setSession(s);
         setUser({ username: s.username });
-        setSessionWarning(false);
         return { ok: true };
       } catch {
         return { ok: false, error: 'Login failed due to an unexpected error.' };
@@ -205,7 +107,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearSession();
     setSession(null);
     setUser(null);
-    setSessionWarning(false);
     if (!opts?.silent) {
       try {
         window.location.reload();
