@@ -168,8 +168,8 @@ function createDataSheet(workbook: ExcelJS.Workbook, results: VehicleRecord[]): 
 
     const values = [
       index + 1, // S.No
-      result.vehicleNumber?.toUpperCase() || '',
-      result.email || '',
+      result.vehicleNumber?.toLowerCase() || '',
+      extractCleanEmail(result.email || ''),
       result.vehicleCreationTimestamp || '',
       result.lastTripDate || '',
       result.daysFromLastTrip || '',
@@ -315,7 +315,7 @@ function createFailedSheet(workbook: ExcelJS.Workbook, failedResults: VehicleRec
     const row = sheet.getRow(index + 3);
     const values = [
       index + 1,
-      result.vehicleNumber?.toUpperCase() || '',
+      result.vehicleNumber?.toLowerCase() || '',
       result.errorMessage || 'Unknown error',
       result.retryCount,
       result.searchStatus,
@@ -345,8 +345,8 @@ export function generateCsv(results: VehicleRecord[]): string {
   const headers = COLUMNS.map(c => c.header);
   const rows = results.map((r, i) => [
     i + 1,
-    r.vehicleNumber?.toUpperCase() || '',
-    r.email || '',
+    r.vehicleNumber?.toLowerCase() || '',
+    extractCleanEmail(r.email || ''),
     r.vehicleCreationTimestamp || '',
     r.lastTripDate || '',
     r.daysFromLastTrip || '',
@@ -489,6 +489,17 @@ export async function generateProcessingLogReport(
 }
 
 // Helper functions
+
+/**
+ * Extract only the first valid email address from a raw string.
+ * Strips dates, timestamps, numbers, and any extra lines.
+ */
+function extractCleanEmail(raw: string): string {
+  if (!raw) return '';
+  const match = raw.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  return match ? match[0] : '';
+}
+
 function getStatusFill(status: string): ExcelJS.Fill | null {
   switch (status) {
     case 'success': return SUCCESS_FILL;
