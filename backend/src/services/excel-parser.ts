@@ -34,7 +34,7 @@ export async function parseUploadedFile(filePath: string): Promise<ParseResult> 
 async function parseCsv(filePath: string): Promise<string[]> {
   const content = fs.readFileSync(filePath, 'utf-8');
   const records = csvParse(content, {
-    skip_empty_lines: true,
+    skip_empty_lines: false,
     trim: true,
     relax_column_count: true,
   });
@@ -43,7 +43,9 @@ async function parseCsv(filePath: string): Promise<string[]> {
   for (const record of records) {
     if (Array.isArray(record) && record.length > 0) {
       const val = String(record[0]).trim();
-      if (val) values.push(val);
+      values.push(val);
+    } else {
+      values.push('');
     }
   }
 
@@ -99,13 +101,13 @@ async function parseExcel(filePath: string): Promise<string[]> {
 
   const startRow = hasHeader ? 2 : 1;
 
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber < startRow) return;
-
+  const lastRowNumber = worksheet.rowCount;
+  for (let rowNumber = startRow; rowNumber <= lastRowNumber; rowNumber++) {
+    const row = worksheet.getRow(rowNumber);
     const cell = row.getCell(vehicleCol);
     const val = String(cell.value || '').trim();
-    if (val) values.push(val);
-  });
+    values.push(val);
+  }
 
   return values;
 }
@@ -118,39 +120,39 @@ function processVehicleNumbers(rawValues: string[]): ParseResult {
   let blankRows = 0;
   let invalidFormat = 0;
 
-  // Normalize all values
-  const normalized: string[] = [];
-  for (const raw of rawValues) {
+  const vehicles: any[] = [];
+
+  for (let i = 0; i < rawValues.length; i++) {
+    const raw = rawValues[i];
+    const rowIndex = i + 1;
+
     if (!raw || raw.trim() === '') {
       blankRows++;
+      vehicles.push({ rowIndex, vehicleNumber: '' });
       continue;
     }
 
     const vn = normalizeVehicleNumber(raw);
 
     if (!isValidVehicleNumber(vn)) {
-      // Still include it — user may have non-standard formats
-      // Just log a warning
       invalidFormat++;
-      errors.push(`Possible invalid format: "${raw}" → "${vn}"`);
+      errors.push(`Row ${rowIndex} - Possible invalid format: "${raw}" → "${vn}"`);
     }
 
-    normalized.push(vn);
+    vehicles.push({ rowIndex, vehicleNumber: vn });
   }
 
-  // Remove duplicates
-  const uniqueSet = new Set(normalized);
-  const vehicles = Array.from(uniqueSet);
-  const duplicatesRemoved = normalized.length - vehicles.length;
+  const total = rawValues.length;
+  const unique = total;
+  const duplicatesRemoved = 0;
 
   logger.info(
-    `Parsed file: ${rawValues.length} raw → ${normalized.length} valid → ${vehicles.length} unique ` +
-    `(${duplicatesRemoved} duplicates, ${blankRows} blank, ${invalidFormat} unusual format)`
+    `Parsed file: ${total} rows. Preservation: ${vehicles.length} queued (0 duplicates removed, ${blankRows} blank, ${invalidFormat} unusual format)`
   );
 
   return {
-    total: rawValues.length,
-    unique: vehicles.length,
+    total,
+    unique,
     duplicatesRemoved,
     invalidFormat,
     blankRows,

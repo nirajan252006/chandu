@@ -9,6 +9,7 @@ import { processVehicle } from '../automation/looker-scraper';
 import { now, estimateTimeRemaining, normalizeVehicleNumber } from '../utils/helpers';
 import logger from '../utils/logger';
 import config from '../config';
+import * as db from '../database/queries';
 
 export type ProgressCallback = (progress: JobProgress) => void;
 export type VehicleCompleteCallback = (result: SearchResult) => void;
@@ -35,7 +36,7 @@ class QueueManager {
   private lastEmitTime = 0;
 
   // Retry / Recheck State
-  private failedRetryQueue: { vehicle: string; attempts: number; lastError: string }[] = [];
+  private failedRetryQueue: { vehicle: string; rowIndex: number; attempts: number; lastError: string }[] = [];
   private pendingRetry = 0;
   private recoveredAfterRetry = 0;
   private permanentFailed = 0;
@@ -76,8 +77,8 @@ class QueueManager {
    */
   async processVehicles(
     jobId: string,
-    vehicles: string[],
-    alreadyProcessed: Set<string> = new Set()
+    vehicles: any[],
+    alreadyProcessedRowIndexes: Set<number> = new Set()
   ): Promise<SearchResult[]> {
     this.currentJobId = jobId;
     this.isPaused = false;
@@ -101,17 +102,26 @@ class QueueManager {
     this.retryAttempt = 0;
     this.retryRemaining = 0;
 
-    // Pre-normalize all input vehicles and already processed
-    const normalizedVehicles = vehicles.map(v => normalizeVehicleNumber(v));
-    const normalizedAlreadyProcessed = new Set([...alreadyProcessed].map(v => normalizeVehicleNumber(v)));
+    // Load initial stats from existing database entries for resume
+    const stats = db.getJobSummary(jobId);
+    this.successCount = stats ? stats.successCount : 0;
+    this.failedCount = stats ? stats.failedCount : 0;
+    this.noRecordCount = stats ? stats.noRecordCount : 0;
 
-    // Filter out already-processed vehicles (for resume)
-    const remaining = normalizedVehicles.filter(v => !normalizedAlreadyProcessed.has(v));
-    this.total = remaining.length;
+    // Pre-normalize all input vehicles
+    const normalizedVehicles = vehicles.map(v => ({
+      rowIndex: Number(v.rowIndex),
+      vehicleNumber: v.vehicleNumber.trim() ? normalizeVehicleNumber(v.vehicleNumber) : ""
+    }));
+
+    // Filter out already-processed row indexes
+    const remaining = normalizedVehicles.filter(v => !alreadyProcessedRowIndexes.has(v.rowIndex));
+    this.total = vehicles.length;
     this.processed = vehicles.length - remaining.length;
 
     // Initialize concurrency semaphore
     this.currentConcurrency = Math.min(this.maxConcurrency, remaining.length);
+    if (this.currentConcurrency < 1) this.currentConcurrency = 1;
     this.semaphore = new Sema(this.currentConcurrency);
 
     this.emitLog('info', `Starting processing: ${remaining.length} vehicles, ${this.currentConcurrency} parallel workers`);
@@ -121,6 +131,30 @@ class QueueManager {
     // Process all vehicles concurrently (limited by semaphore)
     const promises = remaining.map(async (vehicle) => {
       if (this.isCancelled) return;
+
+      if (vehicle.vehicleNumber === "") {
+        // Immediate completion of blank row
+        this.processed++;
+        this.noRecordCount++;
+
+        const result: SearchResult = {
+          vehicleNumber: "",
+          status: 'no_eligible_record',
+          data: null,
+          error: null,
+          duration: 0,
+          retries: 0,
+          workerId: 0,
+          timestamp: now(),
+          rowIndex: vehicle.rowIndex,
+        };
+
+        this.onVehicleCompleteCb?.(result);
+        this.emitLog('info', `Row ${vehicle.rowIndex}: Blank row preserved`, "", 0);
+        this.emitProgress();
+        results.push(result);
+        return;
+      }
 
       // Wait for pause to be lifted
       while (this.isPaused && !this.isCancelled) {
@@ -137,7 +171,7 @@ class QueueManager {
       }
 
       try {
-        this.currentVehicle = vehicle;
+        this.currentVehicle = vehicle.vehicleNumber;
         this.emitProgress();
 
         // Get a tab from the pool
@@ -146,12 +180,13 @@ class QueueManager {
         let result: SearchResult;
 
         try {
-          // Process once (no inline backoff retries - handle all retries in recheck pass)
-          result = await processVehicle(page, vehicle, workerId);
+          // Process once
+          result = await processVehicle(page, vehicle.vehicleNumber, workerId);
+          result.rowIndex = vehicle.rowIndex;
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           result = {
-            vehicleNumber: vehicle,
+            vehicleNumber: vehicle.vehicleNumber,
             status: 'failed',
             data: null,
             error: errMsg,
@@ -159,6 +194,7 @@ class QueueManager {
             retries: 0,
             workerId,
             timestamp: now(),
+            rowIndex: vehicle.rowIndex,
           };
 
           // Check if tab is still valid
@@ -185,7 +221,8 @@ class QueueManager {
           this.failedCount++;
           this.pendingRetry++;
           this.failedRetryQueue.push({
-            vehicle: vehicle,
+            vehicle: vehicle.vehicleNumber,
+            rowIndex: vehicle.rowIndex,
             attempts: 1, // 1st attempt finished
             lastError: result.error || 'Failed'
           });
@@ -202,12 +239,12 @@ class QueueManager {
           this.autoThrottle();
         }
 
-        // Emit events — progress is throttled, no need to call twice per vehicle
+        // Emit events
         this.onVehicleCompleteCb?.(result);
         this.emitLog(
           result.status === 'failed' ? 'error' : 'success',
-          `${vehicle}: ${result.status} (${result.duration}ms)`,
-          vehicle,
+          `${vehicle.vehicleNumber}: ${result.status} (${result.duration}ms)`,
+          vehicle.vehicleNumber,
           result.workerId
         );
         this.emitProgress(); // throttled internally — safe to call here
@@ -254,11 +291,13 @@ class QueueManager {
             logger.warn(`Tab ${workerId} is invalid during retry, replacing...`);
             const newPage = await browserManager.replaceTab(page);
             browserManager.releaseTab(newPage);
-            // Wait brief moment and recheck
+            // Put it back at the front of the queue
+            this.failedRetryQueue.unshift(currentRetry);
             continue;
           }
 
           let result = await processVehicle(page, this.retryCurrentVehicle, workerId);
+          result.rowIndex = currentRetry.rowIndex;
 
           // Evaluate recheck result
           if (result.status === 'success') {
@@ -272,8 +311,8 @@ class QueueManager {
             this.onVehicleCompleteCb?.(result);
             this.emitLog('success', `Recovered vehicle ${this.retryCurrentVehicle} to SUCCESS on attempt ${this.retryAttempt}/3 (${result.duration}ms)`);
             
-            // Replace result in final array
-            const idx = results.findIndex(r => r.vehicleNumber === this.retryCurrentVehicle);
+            // Replace result in final array by rowIndex
+            const idx = results.findIndex(r => r.rowIndex === currentRetry.rowIndex);
             if (idx !== -1) results[idx] = result;
           } else if (result.status === 'no_eligible_record') {
             // Recovered to No Record!
@@ -286,7 +325,7 @@ class QueueManager {
             this.onVehicleCompleteCb?.(result);
             this.emitLog('success', `Recovered vehicle ${this.retryCurrentVehicle} to NO RECORD on attempt ${this.retryAttempt}/3 (${result.duration}ms)`);
 
-            const idx = results.findIndex(r => r.vehicleNumber === this.retryCurrentVehicle);
+            const idx = results.findIndex(r => r.rowIndex === currentRetry.rowIndex);
             if (idx !== -1) results[idx] = result;
           } else {
             // Failed again
@@ -294,6 +333,7 @@ class QueueManager {
               // Re-queue for attempt 3
               this.failedRetryQueue.push({
                 vehicle: this.retryCurrentVehicle,
+                rowIndex: currentRetry.rowIndex,
                 attempts: this.retryAttempt,
                 lastError: result.error || 'Failed'
               });
@@ -307,7 +347,7 @@ class QueueManager {
               this.onVehicleCompleteCb?.(result);
               this.emitLog('error', `Vehicle ${this.retryCurrentVehicle} permanently failed after 3 attempts: ${result.error}`);
 
-              const idx = results.findIndex(r => r.vehicleNumber === this.retryCurrentVehicle);
+              const idx = results.findIndex(r => r.rowIndex === currentRetry.rowIndex);
               if (idx !== -1) results[idx] = result;
             }
           }
@@ -317,6 +357,7 @@ class QueueManager {
           if (this.retryAttempt < 3) {
             this.failedRetryQueue.push({
               vehicle: this.retryCurrentVehicle,
+              rowIndex: currentRetry.rowIndex,
               attempts: this.retryAttempt,
               lastError: errMsg
             });
@@ -331,10 +372,11 @@ class QueueManager {
               duration: 0,
               retries: 2,
               workerId,
-              timestamp: now()
+              timestamp: now(),
+              rowIndex: currentRetry.rowIndex
             };
             this.onVehicleCompleteCb?.(failResult);
-            const idx = results.findIndex(r => r.vehicleNumber === this.retryCurrentVehicle);
+            const idx = results.findIndex(r => r.rowIndex === currentRetry.rowIndex);
             if (idx !== -1) results[idx] = failResult;
           }
         } finally {

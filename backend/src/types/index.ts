@@ -21,6 +21,7 @@ export interface VehicleRecord {
   errorMessage: string;
   workerId: number;
   rawData: Record<string, string>;
+  rowIndex?: number;
 }
 
 export type SearchStatus = 'success' | 'no_eligible_record' | 'failed' | 'timeout' | 'pending' | 'processing';
@@ -67,13 +68,18 @@ export interface JobProgress {
   retryRemaining: number;
 }
 
+export interface VehicleInfo {
+  rowIndex: number;
+  vehicleNumber: string;
+}
+
 export interface ParseResult {
   total: number;
   unique: number;
   duplicatesRemoved: number;
   invalidFormat: number;
   blankRows: number;
-  vehicles: string[];
+  vehicles: VehicleInfo[];
   errors: string[];
 }
 
@@ -98,6 +104,7 @@ export interface SearchResult {
   retries: number;
   workerId: number;
   timestamp: string;
+  rowIndex?: number;
 }
 
 export interface QueueConfig {

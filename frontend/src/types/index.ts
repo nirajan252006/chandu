@@ -27,7 +27,7 @@ export interface ParseResult {
   duplicatesRemoved: number;
   invalidFormat: number;
   blankRows: number;
-  vehicles: string[];
+  vehicles: any[];
   errors: string[];
 }
 
@@ -76,6 +76,7 @@ export interface SearchResult {
   retries: number;
   workerId: number;
   timestamp: string;
+  rowIndex?: number;
 }
 
 export interface UploadResponse {
@@ -100,6 +101,7 @@ export interface VehicleRecord {
   searchStatus: SearchStatus;
   searchTime: string;
   searchDurationMs: number;
+  rowIndex?: number;
 }
 
 export interface JobSummary {

@@ -522,9 +522,10 @@ const ResultsTable = memo(function ResultsTable({ results, progress }: ResultsTa
                       const email = getRecordField(result, ['email']);
                       const owner = getRecordField(result, ['ownerName', 'owner_name', 'owner']);
                       const isPendingRetry = status === 'failed' && result.retries < 2 && progress && (progress.processed < progress.total || progress.retryPhase);
+                      const rowKey = result.rowIndex !== undefined ? `${result.vehicleNumber}_${result.rowIndex}` : result.vehicleNumber;
                       return (
                         <tr
-                          key={result.vehicleNumber}
+                          key={rowKey}
                           style={{ height: `${virtualRow.size}px` }}
                           className="hover:bg-slate-900/60 divide-x divide-slate-900 transition-colors duration-150"
                         >

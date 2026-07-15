@@ -110,7 +110,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   resultIndex: new Map(),
 
   addResult: (result) => set((s) => {
-    const idx = s.resultIndex.get(result.vehicleNumber);
+    const key = result.rowIndex !== undefined ? `${result.vehicleNumber}_${result.rowIndex}` : result.vehicleNumber;
+    const idx = s.resultIndex.get(key);
     if (idx !== undefined) {
       // Already exists — update in place (O(1))
       const newResults = [...s.results];
@@ -119,7 +120,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // New result — append
     const newIndex = new Map(s.resultIndex);
-    newIndex.set(result.vehicleNumber, s.results.length);
+    newIndex.set(key, s.results.length);
     return {
       results: [...s.results, result],
       resultIndex: newIndex,
@@ -127,7 +128,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   updateResult: (result) => set((s) => {
-    const idx = s.resultIndex.get(result.vehicleNumber);
+    const key = result.rowIndex !== undefined ? `${result.vehicleNumber}_${result.rowIndex}` : result.vehicleNumber;
+    const idx = s.resultIndex.get(key);
     if (idx !== undefined) {
       // O(1) update — no array scan needed
       const newResults = [...s.results];
@@ -136,7 +138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // Vehicle not seen yet — append
     const newIndex = new Map(s.resultIndex);
-    newIndex.set(result.vehicleNumber, s.results.length);
+    newIndex.set(key, s.results.length);
     return {
       results: [...s.results, result],
       resultIndex: newIndex,
@@ -150,11 +152,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedIndex = new Map(s.resultIndex);
 
     for (const result of newResults) {
-      const idx = updatedIndex.get(result.vehicleNumber);
+      const key = result.rowIndex !== undefined ? `${result.vehicleNumber}_${result.rowIndex}` : result.vehicleNumber;
+      const idx = updatedIndex.get(key);
       if (idx !== undefined) {
         updatedResults[idx] = result;
       } else {
-        updatedIndex.set(result.vehicleNumber, updatedResults.length);
+        updatedIndex.set(key, updatedResults.length);
         updatedResults.push(result);
       }
     }

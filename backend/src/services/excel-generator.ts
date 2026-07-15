@@ -166,21 +166,22 @@ function createDataSheet(workbook: ExcelJS.Workbook, results: VehicleRecord[]): 
     const rowNumber = index + 4; // Data starts at row 4
     const row = sheet.getRow(rowNumber);
 
+    const isBlank = !result.vehicleNumber;
     const values = [
       index + 1, // S.No
-      result.vehicleNumber?.toLowerCase() || '',
-      extractCleanEmail(result.email || ''),
-      result.vehicleCreationTimestamp || '',
-      result.lastTripDate || '',
-      result.daysFromLastTrip || '',
-      result.tagCreationTimestamp || '',
-      result.tagAdditionCheck || '',
-      result.ownerName || '',
-      result.phoneNumber || '',
-      result.status || '',
-      result.remarks || '',
-      result.searchStatus || '',
-      result.searchDurationMs || 0,
+      isBlank ? '' : (result.vehicleNumber || ''),
+      isBlank ? '' : extractCleanEmail(result.email || ''),
+      isBlank ? '' : (result.vehicleCreationTimestamp || ''),
+      isBlank ? '' : (result.lastTripDate || ''),
+      isBlank ? '' : (result.daysFromLastTrip || ''),
+      isBlank ? '' : (result.tagCreationTimestamp || ''),
+      isBlank ? '' : (result.tagAdditionCheck || ''),
+      isBlank ? '' : (result.ownerName || ''),
+      isBlank ? '' : (result.phoneNumber || ''),
+      isBlank ? '' : (result.status || ''),
+      isBlank ? '' : (result.remarks || ''),
+      isBlank ? '' : (result.searchStatus || ''),
+      isBlank ? '' : (result.searchDurationMs || 0),
     ];
 
     values.forEach((val, colIdx) => {
@@ -192,18 +193,20 @@ function createDataSheet(workbook: ExcelJS.Workbook, results: VehicleRecord[]): 
     });
 
     // Alternating row colors
-    if (index % 2 === 1) {
+    if (!isBlank && index % 2 === 1) {
       values.forEach((_, colIdx) => {
         row.getCell(colIdx + 1).fill = ALT_ROW_FILL;
       });
     }
 
     // Conditional formatting based on search status
-    const statusFill = getStatusFill(result.searchStatus);
-    if (statusFill) {
-      values.forEach((_, colIdx) => {
-        row.getCell(colIdx + 1).fill = statusFill;
-      });
+    if (!isBlank) {
+      const statusFill = getStatusFill(result.searchStatus);
+      if (statusFill) {
+        values.forEach((_, colIdx) => {
+          row.getCell(colIdx + 1).fill = statusFill;
+        });
+      }
     }
 
     row.height = 22;
@@ -343,22 +346,25 @@ function createFailedSheet(workbook: ExcelJS.Workbook, failedResults: VehicleRec
  */
 export function generateCsv(results: VehicleRecord[]): string {
   const headers = COLUMNS.map(c => c.header);
-  const rows = results.map((r, i) => [
-    i + 1,
-    r.vehicleNumber?.toLowerCase() || '',
-    extractCleanEmail(r.email || ''),
-    r.vehicleCreationTimestamp || '',
-    r.lastTripDate || '',
-    r.daysFromLastTrip || '',
-    r.tagCreationTimestamp || '',
-    r.tagAdditionCheck || '',
-    r.ownerName || '',
-    r.phoneNumber || '',
-    r.status || '',
-    r.remarks || '',
-    r.searchStatus || '',
-    r.searchDurationMs || 0,
-  ]);
+  const rows = results.map((r, i) => {
+    const isBlank = !r.vehicleNumber;
+    return [
+      i + 1,
+      isBlank ? '' : (r.vehicleNumber || ''),
+      isBlank ? '' : extractCleanEmail(r.email || ''),
+      isBlank ? '' : (r.vehicleCreationTimestamp || ''),
+      isBlank ? '' : (r.lastTripDate || ''),
+      isBlank ? '' : (r.daysFromLastTrip || ''),
+      isBlank ? '' : (r.tagCreationTimestamp || ''),
+      isBlank ? '' : (r.tagAdditionCheck || ''),
+      isBlank ? '' : (r.ownerName || ''),
+      isBlank ? '' : (r.phoneNumber || ''),
+      isBlank ? '' : (r.status || ''),
+      isBlank ? '' : (r.remarks || ''),
+      isBlank ? '' : (r.searchStatus || ''),
+      isBlank ? '' : (r.searchDurationMs || 0),
+    ];
+  });
 
   const csvContent = [
     headers.join(','),

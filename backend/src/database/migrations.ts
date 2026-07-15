@@ -28,6 +28,7 @@ export function runMigrations(): void {
     CREATE TABLE IF NOT EXISTS results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      row_index INTEGER,
       vehicle_number TEXT NOT NULL,
       email TEXT DEFAULT '',
       vehicle_creation_timestamp TEXT DEFAULT '',
@@ -66,6 +67,14 @@ export function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
     CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
   `);
+
+  // Run dynamic schema migrations for existing databases
+  try {
+    db.exec(`ALTER TABLE results ADD COLUMN row_index INTEGER;`);
+    logger.info('Database migration: Added row_index column to results table');
+  } catch (err) {
+    // Ignore error if column already exists
+  }
 
   logger.info('Database migrations completed');
 }

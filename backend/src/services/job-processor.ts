@@ -46,18 +46,22 @@ class JobProcessor {
 
       // Get vehicles to process
       const allVehicles = db.getJobVehicles(jobId);
-      const processedVehicles = db.getProcessedVehicles(jobId);
+      const processedRowIndexes = db.getProcessedRowIndexes(jobId);
+      const stats = db.getJobSummary(jobId);
+      const successCount = stats ? stats.successCount : 0;
+      const failedCount = stats ? stats.failedCount : 0;
+      const noRecordCount = stats ? stats.noRecordCount : 0;
 
       // Emit initial zero progress so the UI disables the start button and transitions immediately
       this.emit('job:progress', {
         jobId,
         total: allVehicles.length,
-        processed: processedVehicles.size,
-        success: 0,
-        failed: 0,
-        noRecord: 0,
-        remaining: allVehicles.length - processedVehicles.size,
-        progressPercent: allVehicles.length > 0 ? Math.round((processedVehicles.size / allVehicles.length) * 100) : 0,
+        processed: processedRowIndexes.size,
+        success: successCount,
+        failed: failedCount,
+        noRecord: noRecordCount,
+        remaining: allVehicles.length - processedRowIndexes.size,
+        progressPercent: allVehicles.length > 0 ? Math.round((processedRowIndexes.size / allVehicles.length) * 100) : 0,
         currentVehicle: 'Initializing...',
         estimatedTimeMs: 0,
         remainingTimeMs: 0,
@@ -84,7 +88,7 @@ class JobProcessor {
       // Configure queue concurrency
       queueManager.setConcurrency(concurrency);
 
-      logger.info(`Job ${jobId}: ${allVehicles.length} total, ${processedVehicles.size} already processed`);
+      logger.info(`Job ${jobId}: ${allVehicles.length} total, ${processedRowIndexes.size} already processed`);
 
       // Register queue callbacks
       queueManager.onProgress((progress) => {
@@ -124,7 +128,7 @@ class JobProcessor {
       });
 
       // Process vehicles
-      const results = await queueManager.processVehicles(jobId, allVehicles, processedVehicles);
+      const results = await queueManager.processVehicles(jobId, allVehicles, processedRowIndexes);
 
       // Update final job status
       const finalProgress = queueManager.getProgress();
@@ -247,6 +251,32 @@ class JobProcessor {
    * Save a search result to the database
    */
   private saveSearchResult(jobId: string, result: SearchResult): void {
+    if (result.vehicleNumber === "") {
+      const record: Partial<VehicleRecord> = {
+        vehicleNumber: "",
+        email: "",
+        vehicleCreationTimestamp: "",
+        lastTripDate: "",
+        daysFromLastTrip: "",
+        tagCreationTimestamp: "",
+        tagAdditionCheck: "",
+        ownerName: "",
+        phoneNumber: "",
+        status: "",
+        remarks: "",
+        searchStatus: result.status,
+        searchTime: result.timestamp,
+        searchDurationMs: 0,
+        retryCount: 0,
+        errorMessage: "",
+        workerId: 0,
+        rawData: {},
+        rowIndex: result.rowIndex,
+      };
+      db.saveResult(jobId, record);
+      return;
+    }
+
     const selectedRow = result.data?.selectedRow || {};
 
     // Minimal per-vehicle log (no JSON.stringify of rawData in hot path)
@@ -356,6 +386,7 @@ class JobProcessor {
       errorMessage: result.error || '',
       workerId: result.workerId,
       rawData: selectedRow,
+      rowIndex: result.rowIndex,
     };
 
     db.saveResult(jobId, record);

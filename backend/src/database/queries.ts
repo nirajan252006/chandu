@@ -64,7 +64,7 @@ export function updateJobProgress(
   `).run(progress, successCount, failedCount, noRecordCount, id);
 }
 
-export function getJobVehicles(id: string): string[] {
+export function getJobVehicles(id: string): any[] {
   const db = getDb();
   const row = db.prepare('SELECT vehicles_json FROM jobs WHERE id = ?').get(id) as any;
   if (!row || !row.vehicles_json) return [];
@@ -79,18 +79,25 @@ export function getJobVehicles(id: string): string[] {
 
 export function saveResult(jobId: string, result: Partial<VehicleRecord>): void {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM results WHERE job_id = ? AND vehicle_number = ?').get(jobId, result.vehicleNumber || '');
+  
+  let existing = null;
+  if (result.rowIndex !== undefined) {
+    existing = db.prepare('SELECT id FROM results WHERE job_id = ? AND row_index = ?').get(jobId, result.rowIndex);
+  } else {
+    existing = db.prepare('SELECT id FROM results WHERE job_id = ? AND vehicle_number = ?').get(jobId, result.vehicleNumber || '');
+  }
   
   if (existing) {
     db.prepare(`
       UPDATE results SET
-        email = ?, vehicle_creation_timestamp = ?, last_trip_date = ?,
+        vehicle_number = ?, email = ?, vehicle_creation_timestamp = ?, last_trip_date = ?,
         days_from_last_trip = ?, tag_creation_timestamp = ?, tag_addition_check = ?,
         owner_name = ?, phone_number = ?, status = ?, remarks = ?,
         search_status = ?, search_time = ?, search_duration_ms = ?,
         retry_count = ?, error_message = ?, worker_id = ?, raw_data = ?
       WHERE id = ?
     `).run(
+      result.vehicleNumber || '',
       result.email || '',
       result.vehicleCreationTimestamp || '',
       result.lastTripDate || '',
@@ -113,14 +120,15 @@ export function saveResult(jobId: string, result: Partial<VehicleRecord>): void 
   } else {
     db.prepare(`
       INSERT INTO results (
-        job_id, vehicle_number, email, vehicle_creation_timestamp,
+        job_id, row_index, vehicle_number, email, vehicle_creation_timestamp,
         last_trip_date, days_from_last_trip, tag_creation_timestamp,
         tag_addition_check, owner_name, phone_number, status,
         remarks, search_status, search_time, search_duration_ms,
         retry_count, error_message, worker_id, raw_data
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       jobId,
+      result.rowIndex !== undefined ? result.rowIndex : null,
       result.vehicleNumber || '',
       result.email || '',
       result.vehicleCreationTimestamp || '',
@@ -145,24 +153,24 @@ export function saveResult(jobId: string, result: Partial<VehicleRecord>): void 
 
 export function getResults(jobId: string): VehicleRecord[] {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM results WHERE job_id = ? ORDER BY id').all(jobId) as any[];
+  const rows = db.prepare('SELECT * FROM results WHERE job_id = ? ORDER BY row_index ASC').all(jobId) as any[];
   return rows.map(mapResult);
 }
 
 export function getFailedResults(jobId: string): VehicleRecord[] {
   const db = getDb();
   const rows = db.prepare(
-    "SELECT * FROM results WHERE job_id = ? AND search_status IN ('failed', 'timeout') ORDER BY id"
+    "SELECT * FROM results WHERE job_id = ? AND search_status IN ('failed', 'timeout') ORDER BY row_index ASC"
   ).all(jobId) as any[];
   return rows.map(mapResult);
 }
 
-export function getProcessedVehicles(jobId: string): Set<string> {
+export function getProcessedRowIndexes(jobId: string): Set<number> {
   const db = getDb();
   const rows = db.prepare(
-    "SELECT vehicle_number FROM results WHERE job_id = ? AND search_status != 'pending'"
+    "SELECT row_index FROM results WHERE job_id = ? AND search_status != 'pending'"
   ).all(jobId) as any[];
-  return new Set(rows.map((r: any) => r.vehicle_number));
+  return new Set(rows.map((r: any) => Number(r.row_index)));
 }
 
 // ---- LOGS ----
@@ -266,6 +274,7 @@ function mapResult(row: any): VehicleRecord {
     errorMessage: row.error_message,
     workerId: row.worker_id,
     rawData: (() => { try { return JSON.parse(row.raw_data || '{}'); } catch { return {}; } })(),
+    rowIndex: row.row_index !== null ? Number(row.row_index) : undefined,
   };
 }
 
